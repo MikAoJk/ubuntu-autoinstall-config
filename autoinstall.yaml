@@ -1,0 +1,4 @@
+autoinstall:
+  version: 1
+  interactive-sections:
+    - identity
