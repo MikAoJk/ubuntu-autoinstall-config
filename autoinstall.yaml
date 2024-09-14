@@ -2,3 +2,7 @@ autoinstall:
   version: 1
   interactive-sections:
     - identity
+  snaps:
+    - name: firefox
+    - name: snap-store
+    - name: snapd-desktop-integration
