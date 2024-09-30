@@ -6,3 +6,6 @@ autoinstall:
     - name: firefox
     - name: snap-store
     - name: snapd-desktop-integration
+ refresh-installer:
+   update: true
+   channel: latest/edge
