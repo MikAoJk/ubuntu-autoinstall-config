@@ -9,3 +9,7 @@ autoinstall:
   refresh-installer:
     update: true
     channel: latest/edge
+#!/bin/sh
+
+# Install curl
+apt install curl -y
