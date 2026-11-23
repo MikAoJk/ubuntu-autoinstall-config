@@ -1,15 +1,201 @@
+#cloud-config
 autoinstall:
   version: 1
   interactive-sections:
     - identity
-  snaps:
-    - name: firefox
-    - name: snap-store
-    - name: snapd-desktop-integration
+    - storage
+    - network
+  source:
+    id: ubuntu-desktop-minimal
+  locale: en_US.UTF-8
+  keyboard:
+    layout: "no"
+    variant: ""
+  timezone: Europe/Oslo
   refresh-installer:
     update: true
-    channel: latest/edge
-#!/bin/sh
+  early-commands:
+    - |
+      . /etc/os-release
+      if [ "$VERSION_ID" != "26.04" ] || [ "$(dpkg --print-architecture)" != "amd64" ]; then
+        echo "This configuration requires Ubuntu 26.04 Desktop amd64 installation media." >&2
+        exit 1
+      fi
+  apt:
+    fallback: abort
+  packages:
+    - build-essential
+    - ca-certificates
+    - curl
+    - dconf-cli
+    - dotnet-sdk-10.0
+    - gh
+    - git
+    - git-filter-repo
+    - gnupg
+    - language-pack-en
+    - language-pack-gnome-en
+    - libssl-dev
+    - pkg-config
+    - python3
+    - resources
+    - smbclient
+    - unzip
+    - wireguard
+    - zip
+  snaps:
+    - name: firefox
+      channel: latest/stable
+    - name: snap-store
+      channel: 2/stable/ubuntu-26.04
+    - name: snapd-desktop-integration
+      channel: latest/stable
+    - name: desktop-security-center
+      channel: 1/stable/ubuntu-26.04
+    - name: prompting-client
+      channel: 1/stable/ubuntu-26.04
+    - name: firmware-updater
+      channel: latest/stable
+    - name: hwctl
+      channel: latest/stable/ubuntu-26.04
+    - name: dotnet
+      channel: latest/stable
+      classic: true
+    - name: dotnet-sdk-90
+      channel: latest/stable
+    - name: dotnet-runtime-90
+      channel: latest/stable
+    - name: aspnetcore-runtime-90
+      channel: latest/stable
+    - name: intellij-idea
+      channel: latest/stable
+      classic: true
+    - name: rustrover
+      channel: latest/stable
+      classic: true
+    - name: libreoffice
+      channel: latest/stable
+    - name: pinta
+      channel: latest/stable
+    - name: slack
+      channel: latest/stable
+    - name: spotify
+      channel: latest/stable
+  late-commands:
+    - |
+      curtin in-target --target=/target -- /bin/bash -e -o pipefail -c '
+        . /etc/os-release
+        install -d -m 0755 /etc/apt/keyrings
+        add_repository() {
+          local name="$1" key_url="$2" uri="$3" suite="$4" component="$5"
+          curl --fail --silent --show-error --location --retry 3 "$key_url" |
+            gpg --batch --yes --dearmor -o "/etc/apt/keyrings/$name.gpg"
+          chmod 0644 "/etc/apt/keyrings/$name.gpg"
+          printf "deb [arch=%s signed-by=/etc/apt/keyrings/%s.gpg] %s %s %s\n" \
+            "$(dpkg --print-architecture)" "$name" "$uri" "$suite" "$component" \
+            > "/etc/apt/sources.list.d/$name.list"
+        }
+        add_repository docker \
+          https://download.docker.com/linux/ubuntu/gpg \
+          https://download.docker.com/linux/ubuntu "$VERSION_CODENAME" stable
+        add_repository google-chrome \
+          https://dl.google.com/linux/linux_signing_key.pub \
+          https://dl.google.com/linux/chrome-stable/deb stable main
+        add_repository google-cloud-sdk \
+          https://packages.cloud.google.com/apt/doc/apt-key.gpg \
+          https://packages.cloud.google.com/apt cloud-sdk main
+        add_repository k6 \
+          https://dl.k6.io/key.gpg \
+          https://dl.k6.io/deb stable main
+        apt-get update --error-on=any
+        DEBIAN_FRONTEND=noninteractive apt-get install -y \
+          docker-ce docker-ce-cli containerd.io \
+          docker-buildx-plugin docker-compose-plugin \
+          google-chrome-stable google-cloud-cli k6
+      '
+  user-data:
+    write_files:
+      - path: /etc/dconf/profile/user
+        content: |
+          user-db:user
+          system-db:local
+      - path: /etc/dconf/db/local.d/00-desktop-defaults
+        content: |
+          [org/gnome/desktop/interface]
+          color-scheme='prefer-dark'
+          gtk-theme='Yaru-dark'
+          icon-theme='Yaru-dark'
 
-# Install curl
-apt install curl -y
+          [org/gnome/desktop/input-sources]
+          sources=[('xkb', 'no')]
+
+          [org/gnome/shell]
+          enabled-extensions=['ding@rastersoft.com', 'ubuntu-dock@ubuntu.com', 'tiling-assistant@ubuntu.com']
+          favorite-apps=['firefox_firefox.desktop', 'org.gnome.Nautilus.desktop', 'snap-store_snap-store.desktop', 'org.gnome.Ptyxis.desktop', 'slack_slack.desktop', 'intellij-idea_intellij-idea.desktop', 'rustrover_rustrover.desktop', 'net.nokyan.Resources.desktop', 'org.gnome.Settings.desktop', 'spotify_spotify.desktop']
+      - path: /usr/local/bin/setup-development-tools
+        permissions: "0755"
+        content: |
+          #!/bin/bash
+          set -e -o pipefail
+          if [ "$(id -u)" -eq 0 ]; then
+            echo "Run setup-development-tools as your desktop user, not root." >&2
+            exit 1
+          fi
+          cd "$HOME"
+          installer=$(mktemp)
+          trap 'rm -f "$installer"' EXIT
+
+          curl --fail --silent --show-error --location --retry 3 \
+            https://sh.rustup.rs -o "$installer"
+          sh "$installer" -y --default-toolchain stable
+
+          export NVM_DIR="$HOME/.nvm"
+          curl --fail --silent --show-error --location --retry 3 \
+            https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh -o "$installer"
+          PROFILE="$HOME/.bashrc" bash "$installer"
+          . "$NVM_DIR/nvm.sh"
+          nvm install 24
+          nvm install 26
+          nvm alias default 24
+          nvm use 24
+          npm install --global @github/copilot corepack
+          corepack enable pnpm
+          corepack install --global pnpm@latest
+
+          export SDKMAN_DIR="$HOME/.sdkman"
+          export PAGER=cat
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://get.sdkman.io?ci=true" -o "$installer"
+          bash "$installer"
+          . "$SDKMAN_DIR/bin/sdkman-init.sh"
+          java_versions=$(sdk list java)
+          for major in 21 25; do
+            java_version=$(printf "%s\n" "$java_versions" |
+              awk -F "|" -v major="$major" '
+                {
+                  identifier = $NF
+                  gsub(/[[:space:]]/, "", identifier)
+                  if (!found && identifier ~ "^" major "\\.[0-9.]+(\\+[0-9]+)?-tem$") {
+                    print identifier
+                    found = 1
+                  }
+                }')
+            if [ -z "$java_version" ]; then
+              echo "No stable Temurin Java $major version found in SDKMAN." >&2
+              exit 1
+            fi
+            sdk install java "$java_version"
+          done
+          sdk default java "$java_version"
+          echo "Development tools installed. Open a new terminal to load them."
+    runcmd:
+      - [dconf, update]
+      - |
+        set -e
+        # Ubuntu's interactive identity setup creates the first user with UID 1000.
+        if ! account=$(getent passwd 1000); then
+          echo "Cannot set up development tools: no desktop user with UID 1000." >&2
+          exit 1
+        fi
+        username=${account%%:*}
+        runuser -u "$username" -- /usr/local/bin/setup-development-tools
